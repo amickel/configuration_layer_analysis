@@ -35,7 +35,7 @@ retries = Retry(total=10,  # Total number of retries to allow.
 session.mount('https://', HTTPAdapter(max_retries=retries))
 
 server = 'https://www.cradlepointecm.com/api/v2'
-# SUPPORTS ACCOUNT
+
 headers = {
             "X-CP-API-ID": os.environ.get("X-CP-API-ID-Support", ""),
             "X-CP-API-KEY": os.environ.get("X-CP-API-KEY-Support", ""),
@@ -45,6 +45,7 @@ headers = {
            }
 
 group_id = 145120
+
 
 
 
@@ -151,48 +152,17 @@ def conf_parser_tree(routerid, config, head):
                 listN = json.loads(nodey_c.data)
                 listN.extend([routerid])
                 nodey_c.data = json.dumps(listN)
-                # Update child node
-                nodey_gc = ftree.children(nodey_c.identifier)[0]
-                listN = json.loads(nodey_gc.data)
-                listN.extend([routerid])
-                nodey_gc.data = json.dumps(listN)
-                listN = json.loads(nodey_gc.tag)
-                listN.extend([routerid])
-                nodey_gc.tag = json.dumps(listN)
             else:
                 nodey_c = ftree.create_node(
                     stringKey, parent=nodey, data=json.dumps([routerid]))
                 ftree.create_node(
                     tag=nodey_c.data, parent=nodey_c, data=nodey_c.data)
-                
 
 
 def groupFilter(node):
     if node.data == ['group']:
         return False
     return True
-
-
-def path_to_root(node):
-    """Return a string representing the path to root for treemap boxes."""
-    returnStr = ''
-    for i in ftree.rsearch(node.identifier):
-        if ftree.get_node(i).tag == 'ROOT':
-            returnStr = ftree.get_node(i).tag + returnStr
-        else:
-            newStr = ftree.get_node(i).tag
-            returnStr = '.' + str(newStr) + returnStr
-    return returnStr
-
-
-def find_nid(path, startNode):
-    """Return NID for a given path."""
-    kids = {c.tag: c.identifier for c in ftree.children(startNode)}
-    newNid = kids[path.pop(0)]
-    if len(path) > 1:
-        find_nid(path, newNid)
-    else:
-        return newNid
 
 
 def treeGraphBuilder(f=None):
@@ -216,11 +186,9 @@ def treeGraphBuilder(f=None):
             if f is None:
                 values.extend([len(node.data)])
                 labels.extend([node.tag])
-                dotNotation = path_to_root(node)
-                ids.extend([dotNotation])
-                dotNoteParent = path_to_root(ftree.parent(node.identifier))
-                parents.extend([dotNoteParent])
-            else:  # SStrips group out of lists
+                ids.extend([node.identifier])
+                parents.extend([ftree.parent(node.identifier).identifier])
+            else:  # Strips group out of lists
                 if 'group' in node.data:
                     values.extend([len(node.data)-1])
                 else:
@@ -228,15 +196,12 @@ def treeGraphBuilder(f=None):
                 if len(ftree.children(node.identifier)) == 0:  # a leaf node
                     tagCopy = node.tag#.copy()
                     if 'group' in tagCopy:
-                        # tagCopy.remove('group')
-                        str.replace('group', '')
+                        tagCopy.replace('group', '')
                     labels.extend([tagCopy])
                 else:
                     labels.extend([node.tag])
-                dotNotation = path_to_root(node)
-                ids.extend([dotNotation])
-                dotNoteParent = path_to_root(ftree.parent(node.identifier))
-                parents.extend([dotNoteParent])
+                ids.extend([node.identifier])
+                parents.extend([ftree.parent(node.identifier).identifier])
 
 
 for chunk in chunks(router_ids, 100):
@@ -296,7 +261,7 @@ app.layout = html.Div([
         dcc.Textarea(
             id='textarea',
             placeholder='Enter a value...',
-            value=str(ftree.to_dict()),#str(json.loads(ftree.to_json())),
+            value=str(ftree.to_dict()),
             style={'width': '100%'},
             readOnly=True
         )
@@ -310,7 +275,7 @@ lastCheck = ['Group']
                      component_property='figure'),
               [Input(component_id='checklist', component_property='value')])
 def graph_update(checklist_value):
-    """stop."""
+    """Update treemap to include or exclude group data."""
     global lastCheck
     print(checklist_value)
     # If group was checked
@@ -325,13 +290,12 @@ def graph_update(checklist_value):
         ids=ids,
         values=values,
         maxdepth=5,  # Sets how many boxes deep are visible
-        #width=800,
-        #height=800,
         title=f"Configuration Breakdown of Devices in Group {group_id}",
         color_discrete_map={'*': 'lightgrey'}
     )
     fig.update_traces(root_color="lightgrey")
     fig.update_layout(clickmode='event+select')
+    fig.update_traces(hovertemplate='label=%{label}<br>count=%{value}<br>parent=%{parent}')
     fig.update_layout(margin=dict(
         t=50, l=25, r=25, b=25),  uniformtext=dict(minsize=12, mode='hide'),)
     lastCheck = checklist_value
@@ -342,13 +306,10 @@ def graph_update(checklist_value):
     Output('textarea', 'value'),
     Input('config_layers', 'clickData'))
 def display_click_data(clickData):
+    """Update text area based on current selection in treemap."""
     if clickData is not None:
-        path = clickData["points"][0]['id']
-        if path == 'ROOT':
-            return str(ftree.to_dict())
-        else:
-            newRoot = find_nid(path.split('.')[1:], "ROOT")
-            return str(ftree.to_dict(nid=newRoot))
+        newRoot = clickData["points"][0]['id']
+        return str(ftree.to_dict(nid=newRoot))
 
 
 app.run_server(debug=True, use_reloader=False)
