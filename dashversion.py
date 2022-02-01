@@ -12,13 +12,14 @@ import json
 import jsondiff
 import os
 import plotly.express as px
-import plotly.graph_objects as go
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 import sys
+from dash.dependencies import Input, Output
+from treelib import Node, Tree
 
 """ This will make all HTTP requests from the same session
 retry for a total of 10 times, sleeping between retries with an
@@ -33,6 +34,7 @@ retries = Retry(total=10,  # Total number of retries to allow.
                 )
 session.mount('https://', HTTPAdapter(max_retries=retries))
 
+# https://stackoverflow.com/questions/62593781/pandas-json-normalize-generates-only-one-big-row
 server = 'https://www.cradlepointecm.com/api/v2'
 
 headers = {
@@ -45,8 +47,6 @@ headers = {
 
 group_id = 145120
 
-#INDOT
-#group_id = 281325
 
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
@@ -113,9 +113,9 @@ firmware_config = get_default_conf(group_id)  # The default configuration
     so on, will have their own router_ids list until reaching each final value
     in the config.
 '''
-conf_keys_dict = {}
+ftree = Tree()
+rootNode = ftree.create_node("ROOT", "ROOT")
 
-conf_keys_dict_tree_parents = conf_keys_dict.keys()
 
 # The 4 lists below are what plotly uses to create the boxes
 labels = []
@@ -124,105 +124,97 @@ parents = []
 values = []
 
 
-def conf_parser(config, conf_keys_dict, path):
+def conf_parser_tree(routerid, config, head):
     """Add keys from a single router config to conf_keys_dict."""
+    tags = {c.tag: c.identifier for c in ftree.children(head.identifier)}
     for key in config.keys():
-        '''diff = jsondiff.diff(
-            group_config[0].get(key, ''), config.get(key, ''))
-        if(diff != {}):'''
-        routerid = manager['router']['id']
-        if key in conf_keys_dict:
-            conf_keys_dict[key]['router_ids'].append(routerid)
+        nodey = 0
+        if key in tags:
+            nodey = ftree.get_node(tags[key])
+            nodey.data.append(routerid)
         else:
-            conf_keys_dict[key] = {'router_ids': [routerid]}
-        if type(config.get(key)) == dict:
-            if path:
-                conf_parser(config.get(key), conf_keys_dict.get(key),
-                            path+"."+str(key))
-            else:
-                conf_parser(config.get(key), conf_keys_dict.get(key),
-                            str(key))
-        elif type(config.get(key)) == list:
-            stringKey = str(config.get(key))
-            if stringKey in conf_keys_dict[key]:
-                conf_keys_dict[key][stringKey].extend([routerid])
-            else:
-                conf_keys_dict[key][stringKey] = [routerid]
-        else:
-            if config.get(key) in conf_keys_dict[key]:
-                conf_keys_dict[key][config.get(key)].extend([routerid])
-            else:
-                conf_keys_dict[key][config.get(key)] = [routerid]
-
-
-def group_parser(conf, conf_keys_dict, path):
-    """Add keys from the group to conf_keys_dict."""
-    for key in conf.keys():
-        if key != 'router_ids':
-            if key in conf_keys_dict:
-                conf_keys_dict[key]['router_ids'].append('group')
-            else:
-                conf_keys_dict[key] = {'router_ids': ['group']}
-            if type(conf.get(key)) == dict:
-                if path:
-                    group_parser(conf.get(key), conf_keys_dict.get(key),
-                                 path + "." + str(key))
-                else:
-                    group_parser(conf.get(key), conf_keys_dict.get(key),
-                                 str(key))
-            elif type(conf.get(key)) == list:
+            nodey = ftree.create_node(key, parent=head, data=[routerid])
+        if type(config.get(key)) == dict:  # If not a leaf
+            conf_parser_tree(routerid, config.get(key), nodey)
+        else:  # Child is a leaf node
+            child_tags = {c.tag: c.identifier for c in ftree.children(
+                    nodey.identifier)}
+            stringKey = ''
+            if type(config.get(key)) == list:  # if leaf with list data type
                 stringKey = str(config.get(key))
-                if stringKey in conf_keys_dict[key]:
-                    conf_keys_dict[key][stringKey].extend(['group'])
-                else:
-                    conf_keys_dict[key][stringKey] = ['group']
             else:
-                if conf.get(key) in conf_keys_dict[key]:
-                    conf_keys_dict[key][conf.get(key)].extend(['group'])
-                else:
-                    conf_keys_dict[key][conf.get(key)] = ['group']
+                stringKey = config.get(key)
+            if stringKey == 'True':
+                continue
+            if stringKey in child_tags:
+                nodey_c = ftree.get_node(child_tags[stringKey])
+                nodey_c.data.extend([routerid])
+            else:
+                nodey_c = ftree.create_node(
+                    stringKey, parent=nodey, data=[routerid])
+                ftree.create_node(
+                    tag=nodey_c.data, parent=nodey_c, data=nodey_c.data)
 
 
-def graphBuilder(config, path):
-    """Parse conf to create the lists (parents, values, labels) plotly uses."""
-    for key in config.keys():
-        if key != 'router_ids':
-            if type(config.get(key)) == dict:
-                if path:
-                    for x in config.get(key).keys():
-                        if x != 'router_ids':
-                            parents.extend([path + '.' + key])
-                            ids.extend([path + '.' + str(key) + '.' + str(x)])
-                            labels.extend([str(x)])
-                            if type(config[key][x]) == dict:
-                                values.extend(
-                                    [len(config[key][x]['router_ids'])])
-                            else:
-                                values.extend([len(config[key][x])])
-                    graphBuilder(config.get(key), path + "." + str(key))
+def groupFilter(node):
+    if node.data == ['group']:
+        return False
+    return True
+
+
+def path_to_root(node):
+    """Return a string representing the path to root for treemap boxes."""
+    returnStr = ''
+    for i in ftree.rsearch(node.identifier):
+        if ftree.get_node(i).tag == 'ROOT':
+            returnStr = ftree.get_node(i).tag + returnStr
+        else:
+            newStr = ftree.get_node(i).tag
+            returnStr = '.' + str(newStr) + returnStr
+    return returnStr
+
+
+def treeGraphBuilder(f=None):
+    """Parse tree to create lists used by treemap to create the map."""
+    global labels
+    global ids
+    global parents
+    global values
+    labels = []
+    ids = []
+    parents = []
+    values = []
+    for x in ftree.expand_tree(sorting=False, filter=f):
+        node = ftree.get_node(x)
+        if node.tag == 'ROOT':
+            values.extend([0])
+            labels.extend([''])
+            ids.extend(['ROOT'])
+            parents.extend([''])
+        else:
+            if f is None:
+                values.extend([len(node.data)])
+                labels.extend([node.tag])
+                dotNotation = path_to_root(node)
+                ids.extend([dotNotation])
+                dotNoteParent = path_to_root(ftree.parent(node.identifier))
+                parents.extend([dotNoteParent])
+            else:  # SStrips group out of lists
+                if 'group' in node.data:
+                    values.extend([len(node.data)-1])
                 else:
-                    parents.extend([''])
-                    labels.extend([key])
-                    ids.extend([key])
-                    values.extend([len(config[key]['router_ids'])])
-                    for x in config.get(key).keys():
-                        if x != 'router_ids':
-                            parents.extend([key])
-                            ids.extend([str(key) + '.' + x])
-                            labels.extend([x])
-                            if type(config[key][x]) == dict:
-                                values.extend(
-                                    [len(config[key][x]['router_ids'])])
-                            else:
-                                values.extend([len(config[key][x])])
-                    graphBuilder(config.get(key), str(key))
-            else:
-                if path:
-                    parents.extend([path + '.' + str(key)])
-                    ids.extend(
-                        [path + '.' + str(key) + '.' + str(config.get(key))])
-                    labels.extend([str(config.get(key))])
-                values.extend([len(config.get(key))])
+                    values.extend([len(node.data)])
+                if len(ftree.children(node.identifier)) == 0:  # a leaf node
+                    tagCopy = node.tag.copy()
+                    if 'group' in tagCopy:
+                        tagCopy.remove('group')
+                    labels.extend([tagCopy])
+                else:
+                    labels.extend([node.tag])
+                dotNotation = path_to_root(node)
+                ids.extend([dotNotation])
+                dotNoteParent = path_to_root(ftree.parent(node.identifier))
+                parents.extend([dotNoteParent])
 
 
 for chunk in chunks(router_ids, 100):
@@ -233,21 +225,17 @@ for chunk in chunks(router_ids, 100):
         managers = req.json()['data']
         for manager in managers:
             config = manager['configuration'][0]
-            conf_parser(config, conf_keys_dict, '')
+            conf_parser_tree(manager['router']['id'], config, rootNode)
             config['id'] = manager['router']['id']
             router_conf_store[manager['router']['id']] = config
     else:
         print(f'Error {req}')
         sys.exit(1)
-        
-group_parser(group_config[0], conf_keys_dict, '') # Uncomment to include the group configuration in the treemap
-graphBuilder(conf_keys_dict, '')
 
-'''
-TODO
-df5 = pd.json_normalize(list(conf_keys_dict.values()))#  ORRRR df5 = pd.json_normalize(list(conf_keys_dict.values())).T
-df5.index = conf_keys_dict.keys()
-'''
+
+conf_parser_tree('group', group_config[0], rootNode)
+treeGraphBuilder()
+
 
 fig = px.treemap(
     names=labels,
@@ -255,30 +243,63 @@ fig = px.treemap(
     ids=ids,
     values=values,
     maxdepth=5,  # Sets how many boxes deep are visible
-    # width=800,
-    # height=800,
+    width=800,
+    height=800,
     title=f"Configuration Breakdown of Devices in Group {group_id}",
     color_discrete_map={'*': 'lightgrey'}
     # textinfo = "label+value+percent parent+percent entry+percent root",
 )
 
 fig.update_traces(root_color="lightgrey")
+fig.update_layout(clickmode='event+select')
 fig.update_layout(margin=dict(
     t=50, l=25, r=25, b=25),  uniformtext=dict(minsize=12, mode='hide'),)
 
-fig.show(renderer="browser")  # To run without server
+#fig.show(renderer="browser")  # To run without server
+#ftree.save2file('config_layer_analysis.txt') #Saves ftree to a file
 
 
-# TODO: Hidden elements: group and default config. When the checkbox is
-# checked for either of these the graph includes ids with either "GROUP" or
-# "Default"
-
-#The below code runs the treemap in a server. 
-'''
+# The below code runs the treemap in a server.
 app = dash.Dash()
 app.layout = html.Div([
-    dcc.Graph(figure=fig)
+    dcc.Checklist(id='checklist',
+                  options=[
+                      {'label': 'Group', 'value': 'Group'},
+                      {'label': 'Default (Firmware)', 'value': 'Default'}
+                  ],
+                  value=['Group']
+                  ),
+    html.Div([dcc.Graph(figure=fig, id='config_layers')])
 ])
+lastCheck = ['Group']
 
-app.run_server(debug=True, use_reloader=False)  # Turn off reloader if inside Jupyter
-'''
+
+@app.callback(Output(component_id='config_layers',
+                     component_property='figure'),
+              [Input(component_id='checklist', component_property='value')])
+def graph_update(checklist_value):
+    """stop."""
+    global lastCheck
+    print(checklist_value)
+    # If group was checked
+    if ('Group' in checklist_value) and ('Group' not in lastCheck):
+        treeGraphBuilder(f=None)
+    # If group was unchecked
+    elif (('Group' not in checklist_value) and ('Group' in lastCheck)):
+        treeGraphBuilder(f=groupFilter)
+    fig = px.treemap(
+        names=labels,
+        parents=parents,
+        ids=ids,
+        values=values,
+        maxdepth=5,  # Sets how many boxes deep are visible
+        #width=800,
+        #height=800,
+        title=f"Configuration Breakdown of Devices in Group {group_id}",
+        color_discrete_map={'*': 'lightgrey'}
+    )
+    lastCheck = checklist_value
+    return fig
+
+
+app.run_server(debug=True, use_reloader=False)
