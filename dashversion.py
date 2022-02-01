@@ -132,9 +132,11 @@ def conf_parser_tree(routerid, config, head):
         nodey = 0
         if key in tags:
             nodey = ftree.get_node(tags[key])
-            nodey.data.append(routerid)
+            listN = json.loads(nodey.data)
+            listN.extend([routerid])
+            nodey.data=json.dumps(listN)
         else:
-            nodey = ftree.create_node(key, parent=head, data=[routerid])
+            nodey = ftree.create_node(key, parent=head, data=json.dumps([routerid]))
         if type(config.get(key)) == dict:  # If not a leaf
             conf_parser_tree(routerid, config.get(key), nodey)
         else:  # Child is a leaf node
@@ -152,6 +154,14 @@ def conf_parser_tree(routerid, config, head):
                 listN = json.loads(nodey_c.data)
                 listN.extend([routerid])
                 nodey_c.data = json.dumps(listN)
+                # Update child node
+                nodey_gc = ftree.children(nodey_c.identifier)[0]
+                listN = json.loads(nodey_gc.data)
+                listN.extend([routerid])
+                nodey_gc.data = json.dumps(listN)
+                listN = json.loads(nodey_gc.tag)
+                listN.extend([routerid])
+                nodey_gc.tag = json.dumps(listN)
             else:
                 nodey_c = ftree.create_node(
                     stringKey, parent=nodey, data=json.dumps([routerid]))
@@ -184,17 +194,17 @@ def treeGraphBuilder(f=None):
             parents.extend([''])
         else:
             if f is None:
-                values.extend([len(node.data)])
+                values.extend([len(json.loads(node.data))])
                 labels.extend([node.tag])
                 ids.extend([node.identifier])
                 parents.extend([ftree.parent(node.identifier).identifier])
             else:  # Strips group out of lists
                 if 'group' in node.data:
-                    values.extend([len(node.data)-1])
+                    values.extend([len(json.loads(node.data))-1])
                 else:
-                    values.extend([len(node.data)])
+                    values.extend([len(json.loads(node.data))])
                 if len(ftree.children(node.identifier)) == 0:  # a leaf node
-                    tagCopy = node.tag#.copy()
+                    tagCopy = node.tag
                     if 'group' in tagCopy:
                         tagCopy.replace('group', '')
                     labels.extend([tagCopy])
