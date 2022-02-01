@@ -34,9 +34,8 @@ retries = Retry(total=10,  # Total number of retries to allow.
                 )
 session.mount('https://', HTTPAdapter(max_retries=retries))
 
-# https://stackoverflow.com/questions/62593781/pandas-json-normalize-generates-only-one-big-row
 server = 'https://www.cradlepointecm.com/api/v2'
-
+# SUPPORTS ACCOUNT
 headers = {
             "X-CP-API-ID": os.environ.get("X-CP-API-ID-Support", ""),
             "X-CP-API-KEY": os.environ.get("X-CP-API-KEY-Support", ""),
@@ -46,6 +45,7 @@ headers = {
            }
 
 group_id = 145120
+
 
 
 def chunks(lst, n):
@@ -148,12 +148,23 @@ def conf_parser_tree(routerid, config, head):
                 continue
             if stringKey in child_tags:
                 nodey_c = ftree.get_node(child_tags[stringKey])
-                nodey_c.data.extend([routerid])
+                listN = json.loads(nodey_c.data)
+                listN.extend([routerid])
+                nodey_c.data = json.dumps(listN)
+                # Update child node
+                nodey_gc = ftree.children(nodey_c.identifier)[0]
+                listN = json.loads(nodey_gc.data)
+                listN.extend([routerid])
+                nodey_gc.data = json.dumps(listN)
+                listN = json.loads(nodey_gc.tag)
+                listN.extend([routerid])
+                nodey_gc.tag = json.dumps(listN)
             else:
                 nodey_c = ftree.create_node(
-                    stringKey, parent=nodey, data=[routerid])
+                    stringKey, parent=nodey, data=json.dumps([routerid]))
                 ftree.create_node(
                     tag=nodey_c.data, parent=nodey_c, data=nodey_c.data)
+                
 
 
 def groupFilter(node):
@@ -172,6 +183,16 @@ def path_to_root(node):
             newStr = ftree.get_node(i).tag
             returnStr = '.' + str(newStr) + returnStr
     return returnStr
+
+
+def find_nid(path, startNode):
+    """Return NID for a given path."""
+    kids = {c.tag: c.identifier for c in ftree.children(startNode)}
+    newNid = kids[path.pop(0)]
+    if len(path) > 1:
+        find_nid(path, newNid)
+    else:
+        return newNid
 
 
 def treeGraphBuilder(f=None):
@@ -205,9 +226,10 @@ def treeGraphBuilder(f=None):
                 else:
                     values.extend([len(node.data)])
                 if len(ftree.children(node.identifier)) == 0:  # a leaf node
-                    tagCopy = node.tag.copy()
+                    tagCopy = node.tag#.copy()
                     if 'group' in tagCopy:
-                        tagCopy.remove('group')
+                        # tagCopy.remove('group')
+                        str.replace('group', '')
                     labels.extend([tagCopy])
                 else:
                     labels.extend([node.tag])
@@ -269,7 +291,17 @@ app.layout = html.Div([
                   ],
                   value=['Group']
                   ),
-    html.Div([dcc.Graph(figure=fig, id='config_layers')])
+    html.Div([dcc.Graph(figure=fig, id='config_layers')]),
+    html.Div([
+        dcc.Textarea(
+            id='textarea',
+            placeholder='Enter a value...',
+            value=str(ftree.to_dict()),#str(json.loads(ftree.to_json())),
+            style={'width': '100%'},
+            readOnly=True
+        )
+    ]),
+    html.Button('Delete', id='del_but', n_clicks=0),
 ])
 lastCheck = ['Group']
 
@@ -298,8 +330,25 @@ def graph_update(checklist_value):
         title=f"Configuration Breakdown of Devices in Group {group_id}",
         color_discrete_map={'*': 'lightgrey'}
     )
+    fig.update_traces(root_color="lightgrey")
+    fig.update_layout(clickmode='event+select')
+    fig.update_layout(margin=dict(
+        t=50, l=25, r=25, b=25),  uniformtext=dict(minsize=12, mode='hide'),)
     lastCheck = checklist_value
     return fig
+
+
+@app.callback(
+    Output('textarea', 'value'),
+    Input('config_layers', 'clickData'))
+def display_click_data(clickData):
+    if clickData is not None:
+        path = clickData["points"][0]['id']
+        if path == 'ROOT':
+            return str(ftree.to_dict())
+        else:
+            newRoot = find_nid(path.split('.')[1:], "ROOT")
+            return str(ftree.to_dict(nid=newRoot))
 
 
 app.run_server(debug=True, use_reloader=False)
