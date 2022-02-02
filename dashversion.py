@@ -35,7 +35,21 @@ retries = Retry(total=10,  # Total number of retries to allow.
 session.mount('https://', HTTPAdapter(max_retries=retries))
 
 server = 'https://www.cradlepointecm.com/api/v2'
+# PERSONAL ACCOUNT
+'''
+headers = {
+            "X-CP-API-ID": os.environ.get("X-CP-API-ID", ""),
+            "X-CP-API-KEY": os.environ.get("X-CP-API-KEY", ""),
+            "X-ECM-API-ID": os.environ.get("X-ECM-API-ID", ""),
+            "X-ECM-API-KEY": os.environ.get("X-ECM-API-KEY", ""),
+            'Content-Type': 'application/json'
+           }
 
+group_id = 282021
+
+'''
+
+# SUPPORTS ACCOUNT
 headers = {
             "X-CP-API-ID": os.environ.get("X-CP-API-ID-Support", ""),
             "X-CP-API-KEY": os.environ.get("X-CP-API-KEY-Support", ""),
@@ -45,7 +59,6 @@ headers = {
            }
 
 group_id = 145120
-
 
 
 
@@ -116,6 +129,7 @@ firmware_config = get_default_conf(group_id)  # The default configuration
 '''
 ftree = Tree()
 rootNode = ftree.create_node("ROOT", "ROOT")
+delete_section = ''
 
 
 # The 4 lists below are what plotly uses to create the boxes
@@ -134,9 +148,10 @@ def conf_parser_tree(routerid, config, head):
             nodey = ftree.get_node(tags[key])
             listN = json.loads(nodey.data)
             listN.extend([routerid])
-            nodey.data=json.dumps(listN)
+            nodey.data = json.dumps(listN)
         else:
-            nodey = ftree.create_node(key, parent=head, data=json.dumps([routerid]))
+            nodey = ftree.create_node(
+                key, parent=head, data=json.dumps([routerid]))
         if type(config.get(key)) == dict:  # If not a leaf
             conf_parser_tree(routerid, config.get(key), nodey)
         else:  # Child is a leaf node
@@ -169,10 +184,21 @@ def conf_parser_tree(routerid, config, head):
                     tag=nodey_c.data, parent=nodey_c, data=nodey_c.data)
 
 
-def groupFilter(node):
-    if node.data == ['group']:
-        return False
-    return True
+def my_to_dict(tree, nid=None):
+    """Transform the whole tree into a dict."""
+    nid = tree.root if (nid is None) else nid
+    ntag = tree[nid].tag
+    tree_dict = {ntag: {}}
+    if tree[nid].expanded:
+        queue = [tree[i] for i in tree[nid].fpointer]
+        for elem in queue:
+            if len(tree.children(elem.identifier)) > 0:
+                tree_dict[ntag].update(my_to_dict(tree, elem.identifier))
+            else:
+                tree_dict[ntag]={elem.tag}
+        #if len(tree_dict[ntag]["children"]) == 0:
+        #    tree_dict = tree[nid].tag
+        return tree_dict
 
 
 def treeGraphBuilder(f=None):
@@ -271,7 +297,7 @@ app.layout = html.Div([
         dcc.Textarea(
             id='textarea',
             placeholder='Enter a value...',
-            value=str(ftree.to_dict()),
+            value=str(my_to_dict(ftree)),
             style={'width': '100%'},
             readOnly=True
         )
@@ -281,18 +307,25 @@ app.layout = html.Div([
 lastCheck = ['Group']
 
 
-@app.callback(Output(component_id='config_layers',
-                     component_property='figure'),
-              [Input(component_id='checklist', component_property='value')])
-def graph_update(checklist_value):
+@app.callback(Output('config_layers', 'figure'),
+              [Input('checklist', 'value'), Input('del_but', 'n_clicks')])
+def graph_update(checklist_value, btn1):
     """Update treemap to include or exclude group data."""
+    ctx = dash.callback_context
+    print('ctx is ', ctx, ' butn1 ', btn1, ' ctx trigg ', ctx.triggered)
+    if ctx.triggered[0]['prop_id'] == 'del_but.n_clicks' and ctx.triggered[0][
+            'value'] != 0:
+        print('activiate delete')
     global lastCheck
-    print(checklist_value)
     # If group was checked
     if ('Group' in checklist_value) and ('Group' not in lastCheck):
         treeGraphBuilder(f=None)
     # If group was unchecked
     elif (('Group' not in checklist_value) and ('Group' in lastCheck)):
+        def groupFilter(node):
+            if node.data == ['group']:
+                return False
+            return True
         treeGraphBuilder(f=groupFilter)
     fig = px.treemap(
         names=labels,
@@ -311,15 +344,16 @@ def graph_update(checklist_value):
     lastCheck = checklist_value
     return fig
 
-
 @app.callback(
     Output('textarea', 'value'),
     Input('config_layers', 'clickData'))
 def display_click_data(clickData):
     """Update text area based on current selection in treemap."""
     if clickData is not None:
+        global delete_section
         newRoot = clickData["points"][0]['id']
-        return str(ftree.to_dict(nid=newRoot))
+        delete_section = newRoot
+        return str(my_to_dict(ftree, newRoot))
 
 
 app.run_server(debug=True, use_reloader=False)
