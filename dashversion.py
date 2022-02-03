@@ -62,6 +62,8 @@ group_id = 145120
 
 
 
+
+
 def chunks(lst, n):
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
@@ -109,34 +111,6 @@ def get_default_conf(group_id):
     else:
         print(f'Error {req}')
         sys.exit(1)
-
-
-router_conf_store = {}  # Every router's config stored as a seperate entry
-group_config = get_group_conf(group_id)  # The group configuration
-router_ids = get_router_ids(group_id)  # All router IDs in the group
-print('There are', len(router_ids), 'routers in this group.')
-
-firmware_config = get_default_conf(group_id)  # The default configuration
-
-'''
-    This dict stores every key value pair of every router config with a list
-    of which router id's have a config for any given key or value. Example
-    { firewall : router_ids: [182828, 34112, 345311], remote_admin:{...},
-    ssh_admin: {...},  ....} The above means that there are 3 routers in the
-    group that have a firewall configuration. The next keys, remote admin and
-    so on, will have their own router_ids list until reaching each final value
-    in the config.
-'''
-ftree = Tree()
-rootNode = ftree.create_node("ROOT", "ROOT")
-delete_section = ''
-
-
-# The 4 lists below are what plotly uses to create the boxes
-labels = []
-ids = []
-parents = []
-values = []
 
 
 def conf_parser_tree(routerid, config, head):
@@ -195,9 +169,7 @@ def my_to_dict(tree, nid=None):
             if len(tree.children(elem.identifier)) > 0:
                 tree_dict[ntag].update(my_to_dict(tree, elem.identifier))
             else:
-                tree_dict[ntag]={elem.tag}
-        #if len(tree_dict[ntag]["children"]) == 0:
-        #    tree_dict = tree[nid].tag
+                tree_dict[ntag] = {elem.tag}
         return tree_dict
 
 
@@ -231,14 +203,41 @@ def treeGraphBuilder(f=None):
                     values.extend([len(json.loads(node.data))])
                 if len(ftree.children(node.identifier)) == 0:  # a leaf node
                     tagCopy = node.tag
-                    if 'group' in tagCopy:
-                        tagCopy.replace('group', '')
+                    if ', \"group\"' in tagCopy:
+                        tagCopy = tagCopy.replace(', \"group\"', '')
                     labels.extend([tagCopy])
                 else:
                     labels.extend([node.tag])
                 ids.extend([node.identifier])
                 parents.extend([ftree.parent(node.identifier).identifier])
 
+
+router_conf_store = {}  # Every router's config stored as a seperate entry
+group_config = get_group_conf(group_id)  # The group configuration
+router_ids = get_router_ids(group_id)  # All router IDs in the group
+print('There are', len(router_ids), 'routers in this group.')
+
+firmware_config = get_default_conf(group_id)  # The default configuration
+
+'''
+    This dict stores every key value pair of every router config with a list
+    of which router id's have a config for any given key or value. Example
+    { firewall : router_ids: [182828, 34112, 345311], remote_admin:{...},
+    ssh_admin: {...},  ....} The above means that there are 3 routers in the
+    group that have a firewall configuration. The next keys, remote admin and
+    so on, will have their own router_ids list until reaching each final value
+    in the config.
+'''
+ftree = Tree()
+rootNode = ftree.create_node("ROOT", "ROOT")
+delete_section = ''  # Section of config the delete button deletes.
+
+
+# The 4 lists below are what plotly uses to create the boxes
+labels = []
+ids = []
+parents = []
+values = []
 
 for chunk in chunks(router_ids, 100):
     router_list = ','.join(chunk)
@@ -312,7 +311,6 @@ lastCheck = ['Group']
 def graph_update(checklist_value, btn1):
     """Update treemap to include or exclude group data."""
     ctx = dash.callback_context
-    print('ctx is ', ctx, ' butn1 ', btn1, ' ctx trigg ', ctx.triggered)
     if ctx.triggered[0]['prop_id'] == 'del_but.n_clicks' and ctx.triggered[0][
             'value'] != 0:
         print('activiate delete')
@@ -338,11 +336,13 @@ def graph_update(checklist_value, btn1):
     )
     fig.update_traces(root_color="lightgrey")
     fig.update_layout(clickmode='event+select')
-    fig.update_traces(hovertemplate='label=%{label}<br>count=%{value}<br>parent=%{parent}')
+    fig.update_traces(
+        hovertemplate='label=%{label}<br>count=%{value}<br>parent=%{parent}')
     fig.update_layout(margin=dict(
         t=50, l=25, r=25, b=25),  uniformtext=dict(minsize=12, mode='hide'),)
     lastCheck = checklist_value
     return fig
+
 
 @app.callback(
     Output('textarea', 'value'),
