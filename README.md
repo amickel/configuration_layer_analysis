@@ -1,4 +1,4 @@
-# configuration_layer_analysis
+# Configuration_layer_analysis
 
 This script takes Cradlepoint API v2 keys and a group ID as input and outputs a treemap showing the configuration layers of every device in a group in an intutive 
 and interactive manner.
@@ -17,7 +17,7 @@ selection is also included on the page.
 
 
 ### To get started ###
-plugin your api keys and group ID and run the script. Navigate to http://127.0.0.1:8050/ to see the treemap. 
+Plugin your api keys and group ID and run the script. Navigate to http://127.0.0.1:8050/ to see the treemap. 
 
 ### Todo: ###
 * Add text boxes for api keys and group ID on dash page.
