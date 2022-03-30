@@ -50,17 +50,16 @@ group_id = 282021
 '''
 
 # SUPPORTS ACCOUNT
+#Autofill the headers if they exist as environmental variables 
 headers = {
-            "X-CP-API-ID": os.environ.get("X-CP-API-ID-Support", ""),
+            "X-CP-API-ID": os.environ.get("X-CP-API-ID-Support", ""), #change to match how your environmental variable have been set. 
             "X-CP-API-KEY": os.environ.get("X-CP-API-KEY-Support", ""),
             "X-ECM-API-ID": os.environ.get("X-ECM-API-ID-Support", ""),
             "X-ECM-API-KEY": os.environ.get("X-ECM-API-KEY-Support", ""),
             'Content-Type': 'application/json'
            }
 
-group_id = 145120
-
-
+group_id = ""# 145120
 
 
 
@@ -103,14 +102,17 @@ def get_group_conf(group_id):
 def get_default_conf(group_id):
     """Return default config for firmware."""
     url = f'{server}/groups/{group_id}/?fields=target_firmware'
-    firmware = session.get(url, headers=headers).json()['target_firmware']
+    response = session.get(url, headers=headers)
+    if response.status_code != 200:
+        return str(response.status_code) + ": " + str(response.text)
+    firmware = response.json()['target_firmware']
     url = f'{firmware}default_configuration/'
     req = session.get(url, headers=headers)
     if req.status_code < 300:
         return req.json()
     else:
         print(f'Error {req}')
-        sys.exit(1)
+        return str(req.status_code) + ": " + str(req.text)
 
 
 def conf_parser_tree(routerid, config, head):
@@ -211,14 +213,6 @@ def treeGraphBuilder(f=None):
                 ids.extend([node.identifier])
                 parents.extend([ftree.parent(node.identifier).identifier])
 
-
-router_conf_store = {}  # Every router's config stored as a seperate entry
-group_config = get_group_conf(group_id)  # The group configuration
-router_ids = get_router_ids(group_id)  # All router IDs in the group
-print('There are', len(router_ids), 'routers in this group.')
-
-firmware_config = get_default_conf(group_id)  # The default configuration
-
 '''
     This dict stores every key value pair of every router config with a list
     of which router id's have a config for any given key or value. Example
@@ -228,6 +222,7 @@ firmware_config = get_default_conf(group_id)  # The default configuration
     so on, will have their own router_ids list until reaching each final value
     in the config.
 '''
+router_conf_store = {}  # Every router's config stored as a seperate entry
 ftree = Tree()
 rootNode = ftree.create_node("ROOT", "ROOT")
 delete_section = ''  # Section of config the delete button deletes.
@@ -239,24 +234,32 @@ ids = []
 parents = []
 values = []
 
-for chunk in chunks(router_ids, 100):
-    router_list = ','.join(chunk)
-    url = f'{server}/configuration_managers/?router__in={router_list}&expand=router&limit=500'
-    req = session.get(url, headers=headers)
-    if req.status_code < 300:
-        managers = req.json()['data']
-        for manager in managers:
-            config = manager['configuration'][0]
-            conf_parser_tree(manager['router']['id'], config, rootNode)
-            config['id'] = manager['router']['id']
-            router_conf_store[manager['router']['id']] = config
-    else:
-        print(f'Error {req}')
-        sys.exit(1)
-
-
-conf_parser_tree('group', group_config[0], rootNode)
-treeGraphBuilder()
+def builder():
+    firmware_config = get_default_conf(group_id)  # The default configuration
+    if type(firmware_config) == str:#something went wrong, return error string
+        return firmware_config
+    group_config = get_group_conf(group_id)  # The group configuration
+    router_ids = get_router_ids(group_id)  # All router IDs in the group
+    print('There are', len(router_ids), 'routers in this group.')
+    
+    for chunk in chunks(router_ids, 100):
+        router_list = ','.join(chunk)
+        url = f'{server}/configuration_managers/?router__in={router_list}&expand=router&limit=500'
+        req = session.get(url, headers=headers)
+        if req.status_code < 300:
+            managers = req.json()['data']
+            for manager in managers:
+                config = manager['configuration'][0]
+                conf_parser_tree(manager['router']['id'], config, rootNode)
+                config['id'] = manager['router']['id']
+                router_conf_store[manager['router']['id']] = config
+        else:
+            print(f'Error {req}')
+            sys.exit(1)
+    
+    
+    conf_parser_tree('group', group_config[0], rootNode)
+    treeGraphBuilder()
 
 
 fig = px.treemap(
@@ -283,8 +286,39 @@ fig.update_layout(margin=dict(
 
 # The below code runs the treemap in a server.
 app = dash.Dash()
-app.layout = html.Div([
-    dcc.Checklist(id='checklist',
+app.layout = html.Div(
+    [
+      dcc.Input(
+            id="X-CP-API-ID",
+            type="text",
+            placeholder="X-CP-API-ID",
+            value=headers['X-CP-API-ID']
+        ),
+      dcc.Input(
+            id="X-CP-API-KEY",
+            type="text",
+            placeholder="X-CP-API-KEY",
+            value=headers['X-CP-API-KEY']
+        ),
+      dcc.Input(
+            id="X-ECM-API-ID",
+            type="text",
+            placeholder="X-ECM-API-ID",
+            value=headers['X-ECM-API-ID']
+        ),
+      dcc.Input(
+            id="X-ECM-API-KEY",
+            type="text",
+            placeholder="X-ECM-API-KEY",
+            value=headers['X-ECM-API-KEY']
+        ),
+      dcc.Input(
+            id="Group-ID",
+            type="number",
+            placeholder="Group-ID",
+        ),
+      html.Button('Submit', id='submit', n_clicks=0),
+      dcc.Checklist(id='checklist',
                   options=[
                       {'label': 'Group', 'value': 'Group'},
                       {'label': 'Default (Firmware)', 'value': 'Default'}
@@ -302,19 +336,44 @@ app.layout = html.Div([
         )
     ]),
     html.Button('Delete', id='del_but', n_clicks=0),
-])
+    ]
+    
+)
 lastCheck = ['Group']
 
 
-@app.callback(Output('config_layers', 'figure'),
-              [Input('checklist', 'value'), Input('del_but', 'n_clicks')])
-def graph_update(checklist_value, btn1):
+@app.callback(
+                Output('config_layers', 'figure'),
+                Input('checklist', 'value'), 
+                Input('del_but', 'n_clicks'),
+                Input('X-CP-API-ID', 'value'),
+                Input('X-CP-API-KEY', 'value'),
+                Input('X-ECM-API-ID', 'value'),
+                Input('X-ECM-API-KEY', 'value'),
+                Input('Group-ID', 'value'),
+                Input('submit', 'n_clicks')
+            )
+def graph_update(checklist_value, btn1, XCPAPIID, XCPAPIKEY, XECMAPIID, XECMAPIKEY, groupid, subbut):
     """Update treemap to include or exclude group data."""
     ctx = dash.callback_context
+    global lastCheck
+    global group_id
     if ctx.triggered[0]['prop_id'] == 'del_but.n_clicks' and ctx.triggered[0][
             'value'] != 0:
         print('activiate delete')
-    global lastCheck
+    elif ctx.triggered[0]['prop_id'] == 'submit.n_clicks' and XCPAPIID \
+        and XCPAPIKEY and XECMAPIID and XECMAPIKEY and groupid:
+            #update headers
+            headers["X-CP-API-ID"] = ctx.inputs['X-CP-API-ID.value']     
+            headers["X-CP-API-KEY"] = ctx.inputs['X-CP-API-KEY.value']
+            headers["X-ECM-API-ID"] = ctx.inputs['X-ECM-API-ID.value']
+            headers["X-ECM-API-KEY"] = ctx.inputs['X-ECM-API-KEY.value']
+            group_id = ctx.inputs['Group-ID.value']
+            build_return = builder()
+            if type(build_return) == str:
+                alert(build_return)
+                return
+            
     # If group was checked
     if ('Group' in checklist_value) and ('Group' not in lastCheck):
         treeGraphBuilder(f=None)
@@ -354,6 +413,7 @@ def display_click_data(clickData):
         newRoot = clickData["points"][0]['id']
         delete_section = newRoot
         return str(my_to_dict(ftree, newRoot))
+
 
 
 app.run_server(debug=True, use_reloader=False)
