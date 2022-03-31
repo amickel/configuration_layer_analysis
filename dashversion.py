@@ -15,6 +15,7 @@ import plotly.express as px
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
+import dash_bootstrap_components as dbc
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 import sys
@@ -60,7 +61,6 @@ headers = {
            }
 
 group_id = ""# 145120
-
 
 
 def chunks(lst, n):
@@ -288,6 +288,13 @@ fig.update_layout(margin=dict(
 app = dash.Dash()
 app.layout = html.Div(
     [
+      dbc.Alert(
+            "",
+            id="alert",
+            dismissable=True,
+            fade=False,
+            is_open=False,
+      ),
       dcc.Input(
             id="X-CP-API-ID",
             type="text",
@@ -319,32 +326,31 @@ app.layout = html.Div(
         ),
       html.Button('Submit', id='submit', n_clicks=0),
       dcc.Checklist(id='checklist',
-                  options=[
-                      {'label': 'Group', 'value': 'Group'},
-                      {'label': 'Default (Firmware)', 'value': 'Default'}
-                  ],
-                  value=['Group']
-                  ),
-    html.Div([dcc.Graph(figure=fig, id='config_layers')]),
-    html.Div([
-        dcc.Textarea(
-            id='textarea',
-            placeholder='Enter a value...',
-            value=str(my_to_dict(ftree)),
-            style={'width': '100%'},
-            readOnly=True
-        )
-    ]),
-    html.Button('Delete', id='del_but', n_clicks=0),
+                    options=[
+                          {'label': 'Group', 'value': 'Group'},
+                          {'label': 'Default (Firmware)', 'value': 'Default'}
+                      ],
+                    value=['Group']
+                    ),
+      html.Div([dcc.Graph(figure=fig, id='config_layers')]),
+      html.Div([
+            dcc.Textarea(
+                id='textarea',
+                placeholder='Enter a value...',
+                value=str(my_to_dict(ftree)),
+                style={'width': '100%'},
+                readOnly=True
+            )
+        ]),
+      html.Button('Delete', id='del_but', n_clicks=0),
     ]
-    
 )
 lastCheck = ['Group']
 
 
 @app.callback(
                 Output('config_layers', 'figure'),
-                Input('checklist', 'value'), 
+                Input('checklist', 'value'),
                 Input('del_but', 'n_clicks'),
                 Input('X-CP-API-ID', 'value'),
                 Input('X-CP-API-KEY', 'value'),
@@ -353,7 +359,8 @@ lastCheck = ['Group']
                 Input('Group-ID', 'value'),
                 Input('submit', 'n_clicks')
             )
-def graph_update(checklist_value, btn1, XCPAPIID, XCPAPIKEY, XECMAPIID, XECMAPIKEY, groupid, subbut):
+def graph_update(checklist_value, btn1, XCPAPIID, XCPAPIKEY, XECMAPIID,
+                 XECMAPIKEY, groupid, subbut):
     """Update treemap to include or exclude group data."""
     ctx = dash.callback_context
     global lastCheck
@@ -361,19 +368,19 @@ def graph_update(checklist_value, btn1, XCPAPIID, XCPAPIKEY, XECMAPIID, XECMAPIK
     if ctx.triggered[0]['prop_id'] == 'del_but.n_clicks' and ctx.triggered[0][
             'value'] != 0:
         print('activiate delete')
-    elif ctx.triggered[0]['prop_id'] == 'submit.n_clicks' and XCPAPIID \
-        and XCPAPIKEY and XECMAPIID and XECMAPIKEY and groupid:
-            #update headers
-            headers["X-CP-API-ID"] = ctx.inputs['X-CP-API-ID.value']     
-            headers["X-CP-API-KEY"] = ctx.inputs['X-CP-API-KEY.value']
-            headers["X-ECM-API-ID"] = ctx.inputs['X-ECM-API-ID.value']
-            headers["X-ECM-API-KEY"] = ctx.inputs['X-ECM-API-KEY.value']
-            group_id = ctx.inputs['Group-ID.value']
-            build_return = builder()
-            if type(build_return) == str:
-                alert(build_return)
-                return
-            
+    elif ctx.triggered[0]['prop_id'] == 'submit.n_clicks' and XCPAPIID and \
+            XCPAPIKEY and XECMAPIID and XECMAPIKEY and groupid:
+        # update headers
+        headers["X-CP-API-ID"] = ctx.inputs['X-CP-API-ID.value']
+        headers["X-CP-API-KEY"] = ctx.inputs['X-CP-API-KEY.value']
+        headers["X-ECM-API-ID"] = ctx.inputs['X-ECM-API-ID.value']
+        headers["X-ECM-API-KEY"] = ctx.inputs['X-ECM-API-KEY.value']
+        group_id = ctx.inputs['Group-ID.value']
+        build_return = builder()
+        if type(build_return) == str:
+            #alert(build_return)
+            return
+
     # If group was checked
     if ('Group' in checklist_value) and ('Group' not in lastCheck):
         treeGraphBuilder(f=None)
@@ -413,7 +420,13 @@ def display_click_data(clickData):
         newRoot = clickData["points"][0]['id']
         delete_section = newRoot
         return str(my_to_dict(ftree, newRoot))
-
-
-
+'''
+@app.callback(
+    Output("alert", "is_open"),
+    Input("alert-toggle", "n_clicks"))
+def toggle_alert(n, is_open):
+    if n:
+        return not is_open
+    return is_open
+'''
 app.run_server(debug=True, use_reloader=False)
