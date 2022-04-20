@@ -36,21 +36,8 @@ retries = Retry(total=10,  # Total number of retries to allow.
 session.mount('https://', HTTPAdapter(max_retries=retries))
 
 server = 'https://www.cradlepointecm.com/api/v2'
-# PERSONAL ACCOUNT
-'''
-headers = {
-            "X-CP-API-ID": os.environ.get("X-CP-API-ID", ""),
-            "X-CP-API-KEY": os.environ.get("X-CP-API-KEY", ""),
-            "X-ECM-API-ID": os.environ.get("X-ECM-API-ID", ""),
-            "X-ECM-API-KEY": os.environ.get("X-ECM-API-KEY", ""),
-            'Content-Type': 'application/json'
-           }
 
-group_id = 282021
 
-'''
-
-# SUPPORTS ACCOUNT
 #Autofill the headers if they exist as environmental variables 
 headers = {
             "X-CP-API-ID": os.environ.get("X-CP-API-ID-Support", ""), #change to match how your environmental variable have been set. 
@@ -235,6 +222,20 @@ parents = []
 values = []
 
 def builder():
+    global labels
+    global ids
+    global parents
+    global values
+    global ftree
+    ftree = Tree()
+    global rootNode
+    rootNode = ftree.create_node("ROOT", "ROOT")
+    global router_conf_store
+    router_conf_store = {}
+    labels = []
+    ids = []
+    parents = []
+    values = []
     firmware_config = get_default_conf(group_id)  # The default configuration
     if type(firmware_config) == str:#something went wrong, return error string
         return firmware_config
@@ -289,7 +290,7 @@ app = dash.Dash()
 app.layout = html.Div(
     [
       dbc.Alert(
-            "",
+            "Error: there is an issue with your api keys, ids or group id. Please fix and try again.",
             id="alert",
             dismissable=True,
             fade=False,
@@ -350,6 +351,7 @@ lastCheck = ['Group']
 
 @app.callback(
                 Output('config_layers', 'figure'),
+                Output('alert', 'is_open'),
                 Input('checklist', 'value'),
                 Input('del_but', 'n_clicks'),
                 Input('X-CP-API-ID', 'value'),
@@ -361,6 +363,8 @@ lastCheck = ['Group']
             )
 def graph_update(checklist_value, btn1, XCPAPIID, XCPAPIKEY, XECMAPIID,
                  XECMAPIKEY, groupid, subbut):
+    is_open = False
+    alert_text = ""
     """Update treemap to include or exclude group data."""
     ctx = dash.callback_context
     global lastCheck
@@ -378,8 +382,8 @@ def graph_update(checklist_value, btn1, XCPAPIID, XCPAPIKEY, XECMAPIID,
         group_id = ctx.inputs['Group-ID.value']
         build_return = builder()
         if type(build_return) == str:
-            #alert(build_return)
-            return
+            is_open = True
+            alert_text = build_return
 
     # If group was checked
     if ('Group' in checklist_value) and ('Group' not in lastCheck):
@@ -407,7 +411,7 @@ def graph_update(checklist_value, btn1, XCPAPIID, XCPAPIKEY, XECMAPIID,
     fig.update_layout(margin=dict(
         t=50, l=25, r=25, b=25),  uniformtext=dict(minsize=12, mode='hide'),)
     lastCheck = checklist_value
-    return fig
+    return fig, is_open
 
 
 @app.callback(
@@ -420,13 +424,5 @@ def display_click_data(clickData):
         newRoot = clickData["points"][0]['id']
         delete_section = newRoot
         return str(my_to_dict(ftree, newRoot))
-'''
-@app.callback(
-    Output("alert", "is_open"),
-    Input("alert-toggle", "n_clicks"))
-def toggle_alert(n, is_open):
-    if n:
-        return not is_open
-    return is_open
-'''
+
 app.run_server(debug=True, use_reloader=False)
