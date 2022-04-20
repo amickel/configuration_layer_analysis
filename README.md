@@ -17,10 +17,9 @@ selection is also included on the page.
 
 
 ### To get started ###
-Plugin your api keys and group ID and run the script. Navigate to http://127.0.0.1:8050/ to see the treemap. 
+Run the script, navigate to http://127.0.0.1:8050/, plugin your api keys and group ID and select "Submit".
 
 ### Todo: ###
-* Add text boxes for api keys and group ID on dash page.
 * Add functionality to the "delete" button.
 * Add a button to save the tree structure to a file.
 * Make the json print out a pretty print.
